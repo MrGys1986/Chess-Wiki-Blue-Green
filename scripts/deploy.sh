@@ -40,10 +40,34 @@ docker run -d \
   --name "${CONTAINER_NAME}" \
   -p "${PORT}:3000" \
   -e APP_COLOR="${COLOR}" \
-  -e APP_VERSION="${APP_VERSION:-${CI_COMMIT_SHORT_SHA:-local}}" \
+  -e APP_VERSION="${APP_VERSION:-manual}" \
   "${IMAGE}"
 
-# 4. Apuntar Nginx al color correcto
+echo "Esperando a que el contenedor responda en /health..."
+
+# 4. Health-check antes de cambiar Nginx
+ATTEMPTS=10
+SLEEP_SECONDS=3
+HEALTH_OK=false
+
+for i in $(seq 1 "${ATTEMPTS}"); do
+  if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
+    HEALTH_OK=true
+    echo "Health OK en intento ${i}"
+    break
+  fi
+  echo "Intento ${i}/${ATTEMPTS} falló, reintentando en ${SLEEP_SECONDS}s..."
+  sleep "${SLEEP_SECONDS}"
+done
+
+if [[ "${HEALTH_OK}" != "true" ]]; then
+  echo "ERROR: la app no respondió correctamente en /health"
+  docker logs "${CONTAINER_NAME}" || true
+  docker rm -f "${CONTAINER_NAME}" || true
+  exit 1
+fi
+
+# 5. Apuntar Nginx al color correcto
 NGINX_CONF_DIR="/etc/nginx/conf.d"
 ln -sfn "${NGINX_CONF_DIR}/app_${COLOR}.conf" "${NGINX_CONF_DIR}/app_active.conf"
 
